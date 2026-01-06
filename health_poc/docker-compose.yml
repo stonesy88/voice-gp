@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+
+  memgraph:
+    image: memgraph/memgraph-platform
+    container_name: health_memgraph
+    ports:
+      - "7687:7687"
+      - "3000:3000"
+
+    env_file:
+      - .env 
+    volumes:
+      - memgraph_data:/var/lib/memgraph
+
+  triage-backend:
+    build: .
+    container_name: health_backend
+    ports:
+      - "8000:8000" 
+    env_file:
+      - .env
+    depends_on:
+      - memgraph
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: health_ngrok
+    command: http triage-backend:8000
+    env_file:
+      - .env
+    ports:
+      - "4040:4040"
+    depends_on:
+      - triage-backend
+
+volumes:
+  memgraph_data:
