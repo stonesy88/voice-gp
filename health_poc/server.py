@@ -56,14 +56,14 @@ def lookup_symptom(symptom_text):
 
             if candidates:
                 top = candidates[0]
-                logger.info(f"✅ Top Match: {top['term']} ({top['score']:.4f})")
+                logger.info(f"Top Match: {top['term']} ({top['score']:.4f})")
             else:
-                logger.warning("⚠️ No results returned from DB.")
+                logger.warning("No results returned from DB.")
 
         return candidates
 
     except Exception as e:
-        logger.error(f"❌ DB Query Failed: {e}")
+        logger.error(f"DB Query Failed: {e}")
         traceback.print_exc()
         return []
 
@@ -101,7 +101,7 @@ async def triage_webhook(request: Request):
         else:
             args = args_raw
             
-        logger.info(f"🛠️ Tool Call Detected: {name} | ID: {call_id}")
+        logger.info(f"Tool Call Detected: {name} | ID: {call_id}")
 
         # 4. EXECUTE & RESPOND
         response_data = {}
@@ -125,7 +125,7 @@ async def triage_webhook(request: Request):
         return JSONResponse(content=response_data)
 
     except Exception as e:
-        logger.error(f"💥 Webhook Error: {e}")
+        logger.error(f"Webhook Error: {e}")
         traceback.print_exc()
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
