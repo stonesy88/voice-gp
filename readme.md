@@ -187,7 +187,7 @@ The current implementation focuses on *semantic search*, but the true power of a
 ### 2. Semantic Graph Traversal (IS-A Hierarchy)
 **Problem:** If a user reports a specific rare condition, the triage logic might not have a protocol for it.
 **Solution:**
-* Utilize the `[:IS_A]` relationship in SNOMED.
+* Utilise the `[:IS_A]` relationship in SNOMED.
 * If the agent identifies "Retinal Migraine" but lacks a specific protocol, it can traverse *up* the graph to the parent concept ("Migraine") to apply the correct standard of care.
 
 ### 3. Patient History Context
