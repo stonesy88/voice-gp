@@ -1,7 +1,7 @@
 services:
 
   memgraph:
-    image: memgraph/memgraph:3.7.2-relwithdebinfo
+    image: memgraph/memgraph-mage:latest
     container_name: health_memgraph
     ports:
       - "7687:7687"

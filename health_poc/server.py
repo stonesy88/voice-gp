@@ -35,11 +35,10 @@ def lookup_symptom(symptom_text):
     try:
         embedding = model.encode(symptom_text).tolist()
         query = """
-            CALL vss.search('snomed_description_index', $embedding, 10) 
+            CALL vector_search.search('snomed_description_index', 5, $vec) 
             YIELD node, score
             MATCH (c:Concept)-[:HAS_DESCRIPTION]->(node)
-            RETURN c.sctid AS id, node.term AS term, score
-            ORDER BY score DESC
+            RETURN score, node.term AS term, c.sctid AS id
         """
         with driver.session() as session:
             result = session.run(query, embedding=embedding)
