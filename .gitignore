@@ -26,4 +26,6 @@ Thumbs.db
 #SNOMED
 snomed/
 
+.gitignore  
+
 
