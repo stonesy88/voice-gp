@@ -1,4 +1,4 @@
-# Security: Ignore environment variables
+# Sec
 .env
 .env.local
 
@@ -15,17 +15,8 @@ health_poc/venv_new/
 # Docker
 .docker/
 
-# OS specific
-.DS_Store
-Thumbs.db
-
-# IDE specific
-.vscode/
-.idea/
-
 #SNOMED
 snomed/
 
-.gitignore  
 
 
