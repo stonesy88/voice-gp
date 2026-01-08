@@ -109,16 +109,15 @@ Your database starts empty. Run the ingestion script inside the container to loa
 
 ```bash
 # Takes ~5-10 minutes depending on dataset size - the docker compose can be adjusted to utilise GPU - 4090 RTX takes approx 2 hours to do embeddings
-docker exec -it health_backend python ingest_final.py
+docker exec -it health_backend python ingest_snomed.py
 ```
-
-### 5. Create Search Index
-
-Once ingestion is complete, create the vector index:
+Once ingestion is complete, it will create the vector index:
 
 ```bash
 docker exec health_memgraph mgconsole -c "CREATE VECTOR INDEX snomed_description_index ON :Description(embedding) WITH CONFIG {'dimension': 768, 'metric': 'cos', 'capacity': 1000000};"
 ```
+
+If this fails to run, check nodes and edges have been created in memgraph lab. If they have, try running vector index creation manually in memgraph lab.
 
 ## Connecting to Vapi
 
@@ -159,7 +158,7 @@ docker exec health_memgraph mgconsole -c "CREATE VECTOR INDEX snomed_description
 | Issue | Cause | Fix |
 | :--- | :--- | :--- |
 | **404 Not Found** | URL mismatch | Ensure Vapi URL ends in `/triage` (no trailing slash). |
-| **[] Empty Results** | DB empty or No Index | Run `ingest_final.py` and create the vector index. |
+| **[] Empty Results** | DB empty or No Index | Check memgraph for node/edges and vector index. If empty re-run `ingest_snomed.py` or create the vector index manually in memgraph lab. |
 | **Method Not Allowed** | Browser test | The webhook expects POST. Use Invoke-RestMethod or Postman. |
 | **Connection Refused** | Lab vs Docker | Use `localhost` in browser, but `health_memgraph` inside Docker code. |
 
@@ -169,6 +168,30 @@ docker exec health_memgraph mgconsole -c "CREATE VECTOR INDEX snomed_description
 ├── docker-compose.yml   # Orchestration for DB, Backend, Ngrok
 ├── Dockerfile           # Backend container definition
 ├── server.py            # FastAPI Webhook Server
-├── ingest_final.py      # SNOMED Data Loader & Embedder
+├── ingest_snomed.py      # SNOMED Data Loader & Embedder
 └── snomed/              # Place your SNOMED CONCEPT, DESCRIPTION, and RELATIONSHIP CSV files here
+└── test.py              # generate single vector embedding for cypher search
 ```
+
+## Future Roadmap
+
+The current implementation focuses on *semantic search*, but the true power of a Knowledge Graph lies in its relationships. Here are some planned enhancements:
+
+### 1. Body Site & Location Filtering
+**Problem:** A search for "Calf pain" might miss "Pain of gastrocnemius" because the text is different, even though the Gastrocnemius is *part of* the calf.
+**Solution:**
+* Ingest the `Finding Site` relationships from SNOMED.
+* Allow the agent to filter by body structure hierarchy.
+* *Example Query:* `MATCH (symptom)-[:HAS_FINDING_SITE]->(loc) WHERE loc.term = 'Lower Limb' ...`
+
+### 2. Semantic Graph Traversal (IS-A Hierarchy)
+**Problem:** If a user reports a specific rare condition, the triage logic might not have a protocol for it.
+**Solution:**
+* Utilize the `[:IS_A]` relationship in SNOMED.
+* If the agent identifies "Retinal Migraine" but lacks a specific protocol, it can traverse *up* the graph to the parent concept ("Migraine") to apply the correct standard of care.
+
+### 3. Patient History Context
+**Problem:** The current search is stateless and treats every call as a new patient.
+**Solution:**
+* Store patient history nodes in the graph (`(:Patient)-[:HAS_CONDITION]->(:Condition)`).
+* When a patient calls back, the search algorithm can boost scores for concepts related to their existing chronic conditions (e.g., if a diabetic patient reports "dizziness," prioritize "Hypoglycemia").
