@@ -1,28 +1,47 @@
-version: '3.8'
-
 services:
 
   memgraph:
-    image: memgraph/memgraph-platform
+    image: memgraph/memgraph:3.7.2-relwithdebinfo
     container_name: health_memgraph
     ports:
       - "7687:7687"
-      - "3000:3000"
-
-    env_file:
-      - .env 
+      - "7444:7444"
+    environment:
+      - MEMGRAPH_TELEMETRY_ENABLED=False
+    command: [
+      "--log-level=INFO", 
+      "--storage-snapshot-interval-sec=300", 
+      "--storage-wal-enabled=true"
+    ]
     volumes:
       - memgraph_data:/var/lib/memgraph
+
+  memgraph-lab:
+    image: memgraph/lab:latest
+    container_name: health_lab
+    ports:
+      - "3000:3000"
+    environment:
+      - QUICK_CONNECT_MG_HOST=health_memgraph
+      - QUICK_CONNECT_MG_PORT=7687
+      - QUICK_CONNECT_MG_IS_ENCRYPTED=false
+    depends_on:
+      - memgraph
 
   triage-backend:
     build: .
     container_name: health_backend
     ports:
-      - "8000:8000" 
+      - "8000:8000"
     env_file:
       - .env
+    environment:
+      - MEMGRAPH_HOST=health_memgraph 
+      - USE_GPU=false  # Forces CPU mode
     depends_on:
       - memgraph
+    volumes:
+      - ../snomed:/snomed
 
   ngrok:
     image: ngrok/ngrok:latest

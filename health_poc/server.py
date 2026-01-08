@@ -1,103 +1,92 @@
 import os
-import json
 import logging
+import traceback
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from neo4j import GraphDatabase
 from sentence_transformers import SentenceTransformer
 
-# Setup Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
+# --- CONFIGURATION ---
 app = FastAPI()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("Triage-FastAPI")
 
-# 1. Load Model (Must match ingest.py)
-logger.info("Loading Embedding Model...")
-model = SentenceTransformer('all-mpnet-base-v2')
-logger.info("Model Loaded.")
+# Database Connection
+DB_HOST = os.getenv("MEMGRAPH_HOST", "health_memgraph")
+MEMGRAPH_URI = f"bolt://{DB_HOST}:7687"
+AUTH = ("", "") 
 
-# 2. Database Connection
-# If running inside Docker, use "bolt://memgraph:7687"
-# If running locally with ngrok, use "bolt://localhost:7687"
-MEMGRAPH_URI = os.getenv("MEMGRAPH_URI", "bolt://memgraph:7687")
-AUTH = ("", "")
+# --- LOAD AI MODEL ---
+logger.info("Loading AI Model...")
+device = 'cuda' if os.getenv("USE_GPU", "false").lower() == "true" else 'cpu'
+try:
+    model = SentenceTransformer('all-mpnet-base-v2', device=device)
+    logger.info(f"Model Ready on {device.upper()}.")
+except Exception as e:
+    logger.error(f"Failed to load model: {e}")
+    exit(1)
+
 driver = GraphDatabase.driver(MEMGRAPH_URI, auth=AUTH)
 
-def get_embedding(text):
-    return model.encode(text).tolist()
+# --- TOOLS ---
+def lookup_symptom(symptom_text):
+    """Vector search using sync driver (FastAPI puts this in a threadpool automatically)"""
+    logger.info(f"Searching for: {symptom_text}")
+    try:
+        embedding = model.encode(symptom_text).tolist()
+        query = """
+            CALL vss.search('snomed_description_index', $embedding, 10) 
+            YIELD node, score
+            MATCH (c:Concept)-[:HAS_DESCRIPTION]->(node)
+            RETURN c.sctid AS id, node.term AS term, score
+            ORDER BY score DESC
+        """
+        with driver.session() as session:
+            result = session.run(query, embedding=embedding)
+            candidates = [{"id": r["id"], "term": r["term"], "score": r["score"]} for r in result]
 
-@app.post("/vapi-webhook")
-async def vapi_webhook(request: Request):
-    payload = await request.json()
-    
-    # Extract Tool Call
-    message = payload.get("message", {})
-    tool_calls = message.get("toolCalls", [])
-    
-    if not tool_calls:
-        return {"results": []}
+            if candidates:
+            top_matches = [f"{c['term']} ({c['score']:.2f})" for c in candidates[:3]]
+            logger.info(f"Results: {top_matches} ...")
+        else:
+            logger.warning("No matches found.")
 
-    tool_call = tool_calls[0]
-    function_name = tool_call["function"]["name"]
-    call_id = tool_call["id"]
-    
-    logger.info(f"Received Tool Call: {function_name}")
-    
-    result_text = "Error processing request."
+        return candidates
+    except Exception as e:
+        logger.error(f"DB Query Failed: {e}")
+        return []
 
-    if function_name == "lookup_medical_graph":
-        try:
-            args = json.loads(tool_call["function"]["arguments"])
-            symptom = args.get("symptom", "")
+# --- WEBHOOK ---
+@app.post("/triage")
+async def triage_webhook(request: Request):
+    """Handle Vapi function calls"""
+    try:
+        data = await request.json()
+        message = data.get('message', {})
+        
+        if message.get('type') == 'function-call':
+            function_call = message.get('functionCall', {})
+            name = function_call.get('name')
+            params = function_call.get('parameters', {})
             
-            logger.info(f"Looking up symptom: {symptom}")
-            
-            # 1. Vector Search
-            vector = get_embedding(symptom)
-            
-            # Query Logic:
-            # - Find the closest Description node by vector similarity
-            # - Find the Concept owning that Description
-            # - Find Conditions associated with that Concept
-            query = """
-            CALL vector_search.search('snomed_description_index', $embedding, 1) 
-            YIELD node AS matched_desc, similarity
-            
-            MATCH (matched_desc)<-[:HAS_DESCRIPTION]-(symptom_concept:Concept)
-            MATCH (symptom_concept)<-[:ASSOCIATED_WITH]-(condition:Concept)
-            MATCH (condition)-[:HAS_DESCRIPTION]->(cond_desc:Description {type: 'FSN'})
-            
-            RETURN 
-                matched_desc.term AS Identified_Symptom,
-                similarity AS Score,
-                collect(cond_desc.term) AS Potential_Conditions
-            """
-            
-            with driver.session() as session:
-                data = session.run(query, embedding=vector).data()
-                
-            if data:
-                top_match = data[0]
-                found_symptom = top_match['Identified_Symptom']
-                conditions = top_match['Potential_Conditions']
-                
-                result_text = (
-                    f"I found a match for '{found_symptom}' in the clinical database. "
-                    f"This is often associated with: {', '.join(conditions)}. "
-                    "Please ask differentiating questions."
-                )
-            else:
-                result_text = "I could not find a specific clinical match for that symptom."
+            logger.info(f"Tool Call: {name} | Params: {params}")
 
-        except Exception as e:
-            logger.error(f"Error in graph lookup: {e}")
-            result_text = "I am having trouble accessing the records right now."
+            if name == 'lookup_symptom':
+                result = lookup_symptom(params.get('symptom'))
+                return JSONResponse(content={
+                    "results": [{
+                        "toolCallId": function_call.get('toolCallId'),
+                        "result": str(result)
+                    }]
+                })
 
-    return {
-        "results": [
-            {
-                "toolCallId": call_id,
-                "result": result_text
-            }
-        ]
-    }
+        return JSONResponse(content={"status": "ok"})
+
+    except Exception as e:
+        logger.error(f"Webhook Error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

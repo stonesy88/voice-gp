@@ -28,7 +28,7 @@ def ingest():
         # Create index on :Description(embedding)
         session.run("""
             CREATE VECTOR INDEX snomed_description_index ON :Description(embedding) 
-            WITH CONFIG {"dimension": 768, "metric": "cosine"}
+            WITH CONFIG {"dimension": 768, "metric": "cos", "capacity": 10000}
         """)
 
         print("Injecting Clinical Concepts...")
@@ -72,15 +72,15 @@ def ingest():
         for q in queries:
             session.run(q)
             
-        print("🧠 Generating & Storing Embeddings...")
+        print("Generating & Storing Embeddings...")
 
-        result = session.run("MATCH (d:Description) RETURN elementId(d) as id, d.term as term")
+        result = session.run("MATCH (d:Description) RETURN id(d) as id, d.term as term")
         nodes = list(result)
         
         for node in nodes:
             vector = get_embedding(node["term"])
             session.run(
-                "MATCH (d:Description) WHERE elementId(d) = $id SET d.embedding = $vector",
+                "MATCH (d:Description) WHERE id(d) = $id SET d.embedding = $vector",
                 id=node["id"], vector=vector
             )
             

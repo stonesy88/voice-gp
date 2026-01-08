@@ -8,6 +8,9 @@ __pycache__/
 *$py.class
 venv/
 .venv/
+health_poc/__pycache__/
+health_poc/venv/
+health_poc/venv_new/
 
 # Docker
 .docker/
@@ -19,3 +22,8 @@ Thumbs.db
 # IDE specific
 .vscode/
 .idea/
+
+#SNOMED
+snomed/
+
+
